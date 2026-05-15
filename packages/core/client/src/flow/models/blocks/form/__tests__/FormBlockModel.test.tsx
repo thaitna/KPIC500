@@ -22,6 +22,11 @@ import {
   NumberFieldInterface,
 } from '../../../../../collection-manager/interfaces';
 import { Form } from 'antd';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 // -----------------------------
 // Helpers
 // -----------------------------
@@ -105,6 +110,7 @@ async function setupFormModel() {
       { name: 'assignees', type: 'belongsToMany', target: 'users', interface: 'm2m' },
       { name: 'note', type: 'string', interface: 'text' },
       { name: 'status', type: 'string', interface: 'text' },
+      { name: 'rawPayload', type: 'json', filterable: true },
     ],
   });
 
@@ -219,6 +225,22 @@ describe('FlowModel core behaviors (collected)', () => {
     expect(i2).toEqual({ ping: 1 });
   });
 
+  it('stepParams initialized before first beforeRender does not trigger an extra rerun', async () => {
+    vi.useFakeTimers();
+    const spy = vi.fn().mockResolvedValue([]);
+    (engine as any).executor.dispatchEvent = spy;
+    const model = engine.createModel<FlowModel>({ use: 'FlowModel', uid: 'm-flow-3-init' });
+
+    model.setStepParams('anyFlow', 'anyStep', { x: 1 });
+    await model.dispatchEvent('beforeRender', { ping: 1 });
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [, e1, i1] = spy.mock.calls[0];
+    expect(e1).toBe('beforeRender');
+    expect(i1).toEqual({ ping: 1 });
+  });
+
   it('applyFlow delegates to executor.runFlow', async () => {
     const spyRun = vi.fn().mockResolvedValue('ok');
     (engine as any).executor.runFlow = spyRun;
@@ -287,6 +309,27 @@ describe('FormBlockModel (form/formValues injection & server resolve anchors)', 
     expect(params.note).toBeUndefined();
   });
 
+  it('keeps interfaced fields in formValues meta even when they are not configured in the form grid', async () => {
+    const model = await setupFormModel();
+
+    function HookCaller() {
+      model.useHooksBeforeRender();
+      return null;
+    }
+    render(React.createElement(HookCaller));
+    mockFormGridEnabledFields(model, ['customer', 'note']);
+
+    const opt = (model.context as any).getPropertyOptions('formValues');
+    const meta = await opt.meta();
+    const props = await meta.properties();
+
+    expect(props).toHaveProperty('customer');
+    expect(props).toHaveProperty('note');
+    expect(props).toHaveProperty('status');
+    expect(props).toHaveProperty('assignees');
+    expect(props).not.toHaveProperty('rawPayload');
+  });
+
   it('registers formValuesChange event and eventSettings flow', async () => {
     const engine = new FlowEngine();
     const TestFormModel = await createTestFormModelSubclass();
@@ -299,6 +342,31 @@ describe('FormBlockModel (form/formValues injection & server resolve anchors)', 
     // flow registered (eventSettings)
     const flows = model.getFlows();
     expect(flows.has('eventSettings')).toBe(true);
+  });
+
+  it('replays linkage rules after the settings rerender tick', async () => {
+    vi.useFakeTimers();
+    const engine = new FlowEngine();
+    const TestFormModel = await createTestFormModelSubclass();
+    const model = new TestFormModel({ uid: 'form-linkage-save', flowEngine: engine } as any);
+    const applyFlow = vi.spyOn(model, 'applyFlow').mockResolvedValue(undefined as any);
+    const flow = model.getFlow('eventSettings') as any;
+    const afterParamsSave = flow?.steps?.linkageRules?.afterParamsSave;
+    const ctx: any = {
+      model,
+      form: {
+        getFieldsValue: vi.fn(() => ({ status: 'draft' })),
+      },
+    };
+
+    afterParamsSave(ctx);
+
+    expect(applyFlow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(applyFlow).toHaveBeenCalledWith('eventSettings', {
+      changedValues: {},
+      allValues: { status: 'draft' },
+    });
   });
 
   it('delegates layout/assignRules/linkageRules stepParams to grid model', async () => {
@@ -659,10 +727,12 @@ const FormContentHarness = ({
   heightMode,
   height,
   gridModel,
+  layoutProps,
 }: {
   heightMode?: string;
   height?: number;
   gridModel: any;
+  layoutProps?: any;
 }) => {
   const [form] = Form.useForm();
   const modelRef = useRef<any>();
@@ -680,6 +750,7 @@ const FormContentHarness = ({
     <FormBlockContent
       model={modelRef.current}
       gridModel={gridModel}
+      layoutProps={layoutProps}
       heightMode={heightMode}
       height={height}
       grid={<div data-testid="grid" />}
@@ -747,6 +818,20 @@ describe('FormBlockModel block height', () => {
     await waitFor(() => {
       expect(gridModel.setProps).toHaveBeenCalledWith({ height: undefined });
     });
+  });
+
+  it('offsets actions to align with controls in horizontal layout', () => {
+    const gridModel: any = {
+      props: {},
+      setProps: vi.fn(),
+    };
+
+    const { container } = render(
+      <FormContentHarness gridModel={gridModel} layoutProps={{ layout: 'horizontal', labelWidth: 160 }} />,
+    );
+
+    const actionsWrapper = container.querySelector('[data-testid="actions"]')?.parentElement as HTMLElement;
+    expect(actionsWrapper.style.marginInlineStart).toBe('160px');
   });
 });
 

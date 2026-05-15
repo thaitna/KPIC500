@@ -31,7 +31,7 @@ import {
 import { BlockSceneEnum, FilterBlockModel } from '../../base';
 import { FormComponent } from '../../blocks/form/FormBlockModel';
 import { isEmptyValue } from '../form/value-runtime/utils';
-import { FilterManager } from '../filter-manager/FilterManager';
+import { FilterManager, type RefreshTargetsByFilterOptions } from '../filter-manager/FilterManager';
 import { FilterFormItemModel } from './FilterFormItemModel';
 import { clearLegacyDefaultValuesFromFilterFormModel } from './legacyDefaultValueMigration';
 import { findFormItemModelByFieldPath } from '../../../internal/utils/modelUtils';
@@ -53,6 +53,8 @@ export class FilterFormBlockModel extends FilterBlockModel<{
   autoTriggerFilter = true;
 
   private removeTargetBlockListener?: () => void;
+  private initialDefaultsPromise?: Promise<void>;
+  private initialRefreshHandledTargetIds = new Set<string>();
 
   get form() {
     return this.context.form;
@@ -81,13 +83,13 @@ export class FilterFormBlockModel extends FilterBlockModel<{
     this.context.defineProperty('blockModel', {
       value: this,
     });
-    this.context.defineMethod('refreshTargets', async () => {
+    this.context.defineMethod('refreshTargets', async (options?: RefreshTargetsByFilterOptions) => {
       const gridModel = this.subModels.grid;
       const fieldModels: FilterFormItemModel[] = gridModel.subModels.items;
-      if (fieldModels) {
-        fieldModels.forEach((fieldModel) => {
-          fieldModel?.doFilter?.();
-        });
+      const filterIds = fieldModels?.map((fieldModel) => fieldModel?.uid).filter(Boolean);
+      if (filterIds?.length) {
+        const filterManager: FilterManager = this.context.filterManager;
+        await filterManager.refreshTargetsByFilter(filterIds, options);
       }
     });
   }
@@ -101,15 +103,19 @@ export class FilterFormBlockModel extends FilterBlockModel<{
     // 首次进入页面：等待子模型 beforeRender 完成（例如 name 初始化），再应用表单级默认值并触发筛选
     void this.applyDefaultsAndInitialFilter();
 
-    // 监听页面区块删除，自动清理已失效的筛选字段
+    // 监听页面区块删除，自动清理已失效的筛选字段。
+    // 这里使用 onSubModelDestroyed 而不是 onSubModelRemoved，避免弹窗关闭时
+    // 的临时模型卸载被误判成“用户删除了目标区块”。
     const blockGridModel = this.context.blockGridModel;
     if (blockGridModel?.emitter) {
-      const handleTargetRemoved = (model) => {
+      const handleTargetDestroyed = (model) => {
         if (!model?.uid || model.uid === this.uid) return;
-        this.handleTargetBlockRemoved(model.uid);
+        void this.handleTargetBlockRemoved(model.uid).catch((error) => {
+          console.error('Failed to handle destroyed target block in FilterFormBlockModel:', error);
+        });
       };
-      blockGridModel.emitter.on('onSubModelRemoved', handleTargetRemoved);
-      this.removeTargetBlockListener = () => blockGridModel.emitter.off('onSubModelRemoved', handleTargetRemoved);
+      blockGridModel.emitter.on('onSubModelDestroyed', handleTargetDestroyed);
+      this.removeTargetBlockListener = () => blockGridModel.emitter.off('onSubModelDestroyed', handleTargetDestroyed);
     }
   }
 
@@ -119,9 +125,31 @@ export class FilterFormBlockModel extends FilterBlockModel<{
   }
 
   private async applyDefaultsAndInitialFilter() {
-    await this.ensureFilterItemsBeforeRender();
-    await this.applyFormDefaultValues();
-    await this.context.refreshTargets?.();
+    const prepared = await this.prepareInitialFilterValues();
+    if (prepared) {
+      await this.context.refreshTargets?.({ excludeTargetIds: this.initialRefreshHandledTargetIds });
+    }
+  }
+
+  async prepareInitialFilterValues() {
+    if (!this.form) {
+      return false;
+    }
+
+    if (!this.initialDefaultsPromise) {
+      this.initialDefaultsPromise = (async () => {
+        await this.ensureFilterItemsBeforeRender();
+        await this.applyFormDefaultValues();
+      })();
+    }
+
+    await this.initialDefaultsPromise;
+    return true;
+  }
+
+  markInitialTargetRefreshHandled(targetId: string) {
+    if (!targetId) return;
+    this.initialRefreshHandledTargetIds.add(targetId);
   }
 
   private async ensureFilterItemsBeforeRender() {
