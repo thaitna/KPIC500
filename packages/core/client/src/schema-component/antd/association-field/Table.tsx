@@ -304,7 +304,7 @@ const TableIndex = (props) => {
   );
 };
 
-const pageSizeOptions = [5, 10, 20, 50, 100, 200];
+const pageSizeOptions = [5, 7, 8, 10, 20, 50, 100, 200];
 
 const usePaginationProps = (pagination1, pagination2) => {
   const { t } = useTranslation();

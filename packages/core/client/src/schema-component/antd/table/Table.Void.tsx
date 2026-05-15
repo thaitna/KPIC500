@@ -27,7 +27,7 @@ type TableVoidProps = TableProps<any> & {
   onSuccess?: (data?: any) => void;
 };
 
-const pageSizeOptions = [5, 10, 20, 50, 100, 200];
+const pageSizeOptions = [5, 7, 8, 10, 20, 50, 100, 200];
 
 const usePaginationProps = (props: TableProps<any> & { request?: any }, service): TablePaginationConfig | false => {
   if (props.pagination === false) {

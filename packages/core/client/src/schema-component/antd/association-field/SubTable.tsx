@@ -208,7 +208,7 @@ export const SubTable: any = observer(
           setFormValueChanged?.(false);
         },
         showSizeChanger: true,
-        pageSizeOptions: ['10', '20', '50', '100'],
+        pageSizeOptions: ['7', '8', '10', '20', '50', '100'],
         hideOnSinglePage: false,
       };
     }, [field.value?.length, pageSize, currentPage]);

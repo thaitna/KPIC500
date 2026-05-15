@@ -185,7 +185,7 @@ export class RedisConnectionManager {
         key,
       });
       try {
-        conn.destroy();
+        await conn.disconnect();
       } catch (disconnectErr) {
         this.logger.warn(`Failed to disconnect redis connection`, {
           err: disconnectErr,

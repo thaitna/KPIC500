@@ -244,6 +244,8 @@ DisplaySubTableFieldModel.registerFlow({
         props: {
           options: [
             { label: '5', value: 5 },
+            { label: '7', value: 7 },
+            { label: '8', value: 8 },
             { label: '10', value: 10 },
             { label: '20', value: 20 },
             { label: '50', value: 50 },
