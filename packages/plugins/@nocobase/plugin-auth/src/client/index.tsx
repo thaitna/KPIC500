@@ -16,6 +16,7 @@ import { authCheckMiddleware } from './interceptors';
 import { NAMESPACE } from './locale';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { useSignUpForms } from './pages';
 // import { AuthProvider } from './AuthProvider';
 const { AuthProvider } = lazy(() => import('./AuthProvider'), 'AuthProvider');
 // import { Options, SignInForm, SignUpForm } from './basic';
@@ -128,6 +129,8 @@ const useRedirect = function (next = '/admin') {
   const useRedirect = useLazy<typeof import('./basic').useRedirect>(() => import('./basic'), 'useRedirect');
   return useRedirect(next);
 };
+
+export { useSignUpForms } from './pages';
 
 export { useSignIn, useRedirect };
 
